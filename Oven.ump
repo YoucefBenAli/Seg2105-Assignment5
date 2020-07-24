@@ -1,0 +1,303 @@
+
+
+  
+  class Oven {
+    boolean radiatingPower = false; //If true power is high, else power is low. Low by default
+    boolean ovenOn = false;
+    boolean paused = false;
+    boolean closedDoor = true;
+    int microwavePower = 0;
+    int secondsLeft = 0;
+    int temperature = 0;
+    int targetTemperature = 0;
+    int maxTemp = 400;
+    depend java.text.SimpleDateFormat;  
+    depend java.util.Date;  
+    
+    queued fan{
+
+      idleFan{
+        turnOffFan -> fanOff;
+        turnOnFan -> fanOn;
+      }
+
+      fanOff{
+          entry / {display("Fan has been turned off");}
+          turnOnFan -> fanOn;
+      }
+
+      fanOn{
+          entry / {display("Fan has been turned on");}
+          turnOffFan -> fanOff;
+      }
+    }
+    
+    queued radiatingHeatElement {
+      idleRad{
+        turnOffRadiator->radOff;
+        turnOnRadiator->radOn;
+      }
+      radOn{
+        turnOffRadiator -> radOff;
+          entry /{
+            if(radiatingPower) display("Radiator is on at high power");
+            else display("Radiator is on at low power");}
+
+          entry/{turnOnFan();startTimer(secondsLeft); ovenOn = true;}
+          timerEnded -> radOff;
+          stop/{secondsLeft=0;} ->radOff;
+          pause -> radPaused;
+      }
+
+      radPaused{
+        entry/{display("Radiator has been paused");}
+        resume[closedDoor] -> radOn;
+        turnOffRadiator -> radOff;
+      }
+      radOff{
+        entry/{display("Radiator has been turned off");}
+        entry/{turnOffFan(); beep(3); ovenOn=false;}
+        turnOnRadiator -> radOn;
+        after(1) -> idleRad;
+      }
+    }
+
+    queued microwave{
+      idleMic{
+        turnOnMicrowave[secondsLeft>0] -> micOn;
+        turnOnMicrowave[secondsLeft==0]/{display("Time is set to zero, ensure time is above 0");} -> idleMic;
+        turnOffMicrowave -> micOff;
+      }
+      micOn{
+        entry/{display("Microwave is on at " + microwavePower); startTimer(secondsLeft); openExhaust();ovenOn = true;}
+        pause -> micPaused;
+        stop/{secondsLeft=0;} ->micOff;
+        timerEnded-> micOff;
+      }
+      micPaused{
+        entry/{display("Microwave has been paused");}
+        resume[closedDoor] -> micOn;
+        turnOffMicrowave -> micOff;
+      }
+      micOff{
+        entry/{display("Microwave has been turned off"); closeExhaust(); beep(3); ovenOn = false;}
+        after(1) -> idleMic;
+      }
+    }
+
+    queued temperatureControl{
+      idleTemp{
+        tempOn (int heat) [heat<maxTemp] / {targetTemperature = heat;}-> temperatureActive;
+        tempOn (int heat) [heat>=maxTemp] / {display("Given temperature above maximum temperature");} ->idleTemp;
+      }
+      temperatureActive{
+        
+        tempOn (int heat) [heat<maxTemp] / {targetTemperature = heat;}-> temperatureActive;
+        tempOn (int heat) [heat>=maxTemp] / {display("Given temperature above maximum temperature");} ->idleTemp;
+        do{checkForTemp();}
+      }
+    }
+
+    queued door{
+      idleDoor{
+        openDoor-> doorOpen;
+        closedDoor-> doorClosed;
+      }
+      doorClosed{
+        entry/{closedDoor = true; display("Door has been closed");}
+        openDoor -> doorOpen;
+      }
+      doorOpen{
+        entry/{closedDoor = false; display("Door has been opened"); pause();}
+        closeDoor -> doorClosed;
+      }
+    }
+
+    queued exhaust{
+      closedExhaust{
+        entry/{display("Exhaust vent is closed");}
+        openExhaust -> openExhaust;
+      }
+      openExhaust{
+        entry/{display("Exhaust vent has been opened");}
+        closeExhaust -> closedExhaust;
+        pause-> closedExhaust;
+      }
+    }
+
+    queued timer2{
+      idleTimer{
+        timeOn(int seconds) [ovenOn == false] / {secondsLeft = seconds;} -> activeTimer;
+        timeOff -> inactiveTimer;
+      }
+      activeTimer{
+        entry/{startTimer(secondsLeft);}
+        stop/{secondsLeft=0;} ->inactiveTimer;
+        timerEnded->inactiveTimer;
+      }
+      inactiveTimer{
+        entry/{beep(4);} -> idleTimer;
+      }
+    }
+
+    queued timingSm {
+      idle {
+        startTimer(int seconds) -> countingDown;
+      }
+      countingDown {
+        startTimer(int seconds) -> countingDown;
+        
+        after(1.0) [secondsLeft >= 1 && ! paused]  / {
+          displayTime();
+          secondsLeft--;
+        } -> countingDown;
+        
+        after(1.0) [secondsLeft <= 0] -> idle;
+        
+        pause -> idle;
+        
+        exit / {if (secondsLeft <= 0) timerEnded();}
+      }
+    }
+
+    void checkForTemp(){
+      System.out.println("Here");
+      while(true){
+        //System.out.println("Here");
+        if (temperature >= maxTemp || temperature>=targetTemperature){
+          display("Max temperature exceeded, stopping all cooking");
+          stop();
+          break;
+        }
+      }
+    }
+
+    void changeTemp(int heat){ //For testing purposes not a function that would be controlled
+      temperature=heat;
+      if (temperature >= maxTemp || temperature>=targetTemperature){
+          display("Max temperature exceeded, stopping all cooking");
+          stop();
+      }
+    }
+
+    void beep(int repition){
+      for (int i = 0; i<repition; i++){
+        display("SOUND: BEEP (1 second)");
+        try{
+          Thread.sleep(1000);
+        }
+        catch(InterruptedException ex){
+          Thread.currentThread().interrupt();
+        }
+      }
+    }
+
+    void setTime(int seconds){
+      secondsLeft = seconds;
+    }
+
+    void setMicroWavePower(int power){
+      microwavePower = power;
+    }
+
+    void displayTime() {
+      SimpleDateFormat formatter = new SimpleDateFormat("HH:mm:ss ");  
+      Date date = new Date();  
+      formatter.format(date);
+      System.out.println(formatter.format(date) + "DISPLAY: "+secondsLeft);
+    } 
+    
+    void display(String s) {
+      SimpleDateFormat formatter = new SimpleDateFormat("HH:mm:ss ");  
+      Date date = new Date();  
+      formatter.format(date);
+      System.out.println(formatter.format(date) + s);
+    }
+    void testing(){
+      return;
+    }
+    void toggleradiatingPower(){
+      radiatingPower = !radiatingPower;
+      if (radiatingPower){
+        display("Power has been set to high");
+      }
+      else{
+        display("Power has been set to low");
+      }
+    }
+
+    public static void main(String[] args){
+        Oven test = new Oven();
+        Scanner s = new Scanner(System.in);
+        int length;
+        String command;
+        while(true) {
+        command = s.nextLine();
+        switch(command) {
+          case "q": System.exit(0);
+          case "microwaveOn":
+            test.turnOnMicrowave();
+            break;
+          case "microwaveOff":
+            test.turnOffMicrowave();
+            break;
+          case "radiatorOn":
+            test.turnOnRadiator();
+            break;
+          case "radiatorOff":
+            test.turnOffRadiator();
+            break;
+          case "time":
+            test.display("enter time");
+            command = s.nextLine();
+            length = Integer.parseInt(command);
+            test.setTime(length);
+            break;
+          case "powerMicrowave":
+            test.display("enter power (1-10)");
+            command = s.nextLine();
+            length = Integer.parseInt(command);
+            test.setMicroWavePower(length);
+            break;
+          case "powerRadiator":
+            test.toggleradiatingPower();
+            break;
+          case "opendoor":
+            test.openDoor();
+            break;
+          case "closedoor":
+            test.closeDoor();
+            break;
+          case "resume":
+            test.resume();
+            break;
+          case "stop":
+            test.stop();
+            break;
+          case "timer":
+            test.display("Enter time:");
+            command = s.nextLine();
+            length = Integer.parseInt(command);
+            test.timeOn(length);
+            break;
+          case "temp":
+            test.display("Enter temperature:");
+            command = s.nextLine();
+            length = Integer.parseInt(command);
+            test.tempOn(length);
+            break;
+          case "internalTemp":
+            test.display("Enter temperature:");
+            command = s.nextLine();
+            length = Integer.parseInt(command);
+            test.changeTemp(length);
+            break;
+
+          case "both":
+            test.turnOnRadiator();
+            test.turnOnMicrowave();
+            break;
+        }
+      }
+    }
+  }
