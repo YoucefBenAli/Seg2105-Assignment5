@@ -6,6 +6,7 @@
     boolean ovenOn = false;
     boolean paused = false;
     boolean closedDoor = true;
+    boolean beeping = false;
     int microwavePower = 0;
     int secondsLeft = 0;
     int temperature = 0;
@@ -35,7 +36,9 @@
     queued radiatingHeatElement {
       idleRad{
         turnOffRadiator->radOff;
-        turnOnRadiator->radOn;
+        turnOnRadiator[secondsLeft>0 && ovenOn == false]->radOn;
+        turnOnRadiator[secondsLeft==0]/{display("Time is set to zero, ensure time is above 0");}->idleRad;
+        turnOnRadiator[ovenOn==true]/{display("The oven is currently being used, please cancel other cooking operations");}->idleRad;
       }
       radOn{
         turnOffRadiator -> radOff;
@@ -43,15 +46,17 @@
             if(radiatingPower) display("Radiator is on at high power");
             else display("Radiator is on at low power");}
 
-          entry/{turnOnFan();startTimer(secondsLeft); ovenOn = true;}
+          entry/{turnOnFan();startTimer(secondsLeft);}
+          do{toggleOven();}
           timerEnded -> radOff;
           stop/{secondsLeft=0;} ->radOff;
           pause -> radPaused;
       }
 
       radPaused{
-        entry/{display("Radiator has been paused");}
+        entry/{display("Radiator is paused");turnOffFan();}
         resume[closedDoor] -> radOn;
+        resume[!closedDoor]/{display("Ensure the door is closed before resuming");}->radPaused;
         turnOffRadiator -> radOff;
       }
       radOff{
@@ -64,19 +69,22 @@
 
     queued microwave{
       idleMic{
-        turnOnMicrowave[secondsLeft>0] -> micOn;
+        turnOnMicrowave[secondsLeft>0 && ovenOn == false] -> micOn;
         turnOnMicrowave[secondsLeft==0]/{display("Time is set to zero, ensure time is above 0");} -> idleMic;
+        turnOnMicrowave[ovenOn==true]/{display("The oven is currently being used, please cancel other cooking operations");} -> idleMic;
         turnOffMicrowave -> micOff;
       }
       micOn{
-        entry/{display("Microwave is on at " + microwavePower); startTimer(secondsLeft); openExhaust();ovenOn = true;}
+        entry/{display("Microwave is on at " + microwavePower); startTimer(secondsLeft); openExhaust();}
+        do{toggleOven();}
         pause -> micPaused;
         stop/{secondsLeft=0;} ->micOff;
         timerEnded-> micOff;
       }
       micPaused{
-        entry/{display("Microwave has been paused");}
+        entry/{display("Microwave is paused");}
         resume[closedDoor] -> micOn;
+        resume[!closedDoor]/{display("Ensure the door is closed before resuming");}->micPaused;
         turnOffMicrowave -> micOff;
       }
       micOff{
@@ -128,6 +136,7 @@
     queued timer2{
       idleTimer{
         timeOn(int seconds) [ovenOn == false] / {secondsLeft = seconds;} -> activeTimer;
+        timeOn(int seconds) [ovenOn == true] / {display("Timer currently being used for oven features");} -> idleTimer;
         timeOff -> inactiveTimer;
       }
       activeTimer{
@@ -180,15 +189,29 @@
       }
     }
 
-    void beep(int repition){
-      for (int i = 0; i<repition; i++){
-        display("SOUND: BEEP (1 second)");
-        try{
+    void toggleOven(){
+      try{
           Thread.sleep(1000);
+          ovenOn = true;
         }
         catch(InterruptedException ex){
           Thread.currentThread().interrupt();
         }
+    }
+
+    void beep(int repition){
+      if(!beeping){
+        beeping = false;
+        for (int i = 0; i<repition; i++){
+          display("SOUND: BEEP (1 second)");
+          try{
+            Thread.sleep(1000);
+          }
+          catch(InterruptedException ex){
+            Thread.currentThread().interrupt();
+          }
+        }
+        beeping = true;
       }
     }
 
@@ -211,8 +234,10 @@
       SimpleDateFormat formatter = new SimpleDateFormat("HH:mm:ss ");  
       Date date = new Date();  
       formatter.format(date);
-      System.out.println(formatter.format(date) + s);
+      System.out.println(formatter.format(date)+ s);
     }
+
+    
     void testing(){
       return;
     }
@@ -248,13 +273,13 @@
             test.turnOffRadiator();
             break;
           case "time":
-            test.display("enter time");
+            test.display("Enter time");
             command = s.nextLine();
             length = Integer.parseInt(command);
             test.setTime(length);
             break;
           case "powerMicrowave":
-            test.display("enter power (1-10)");
+            test.display("Enter power (1-10):");
             command = s.nextLine();
             length = Integer.parseInt(command);
             test.setMicroWavePower(length);
@@ -292,7 +317,6 @@
             length = Integer.parseInt(command);
             test.changeTemp(length);
             break;
-
           case "both":
             test.turnOnRadiator();
             test.turnOnMicrowave();
