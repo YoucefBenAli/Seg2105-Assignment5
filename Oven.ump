@@ -1,13 +1,28 @@
+/*
+    This program is a simulation of an oven using state machines
+    Copyright (C) 2020 Youcef Ben Ali
 
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
 
-  
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
   class Oven {
+    //-- INSTANCE VARIABLES
     boolean radiatingPower = false; //If true power is high, else power is low. Low by default
     boolean ovenOn = false;
     boolean paused = false;
     boolean closedDoor = true;
     boolean beeping = false;
-    int microwavePower = 0;
+    int microwavePower = 1; //Microwave power from a scale of 1-10
     int secondsLeft = 0;
     int temperature = 0; //Current temperature inside oven
     int targetTemperature = 0; //Temperature requested by user
@@ -17,6 +32,8 @@
     depend java.text.SimpleDateFormat;  
     depend java.util.Date;  
     
+    //--STATE MACHINESs
+
     queued fan{
 
       idleFan{
@@ -50,7 +67,7 @@
 
           entry/{turnOnFan();startTimer(secondsLeft);}
           do{toggleOven();}
-          timerEnded -> radOff;
+          timerEnded/{nextOperation();} -> radOff;
           stop/{secondsLeft=0;} ->radOff;
           pause -> radPaused;
       }
@@ -63,7 +80,7 @@
       }
       radOff{
         entry/{display("Radiator has been turned off");}
-        entry/{turnOffFan(); beep(3); ovenOn=false;}
+        entry/{turnOffFan(); beep(3); ovenOn=false; clearQueue(); secondsLeft=0;}
         turnOnRadiator -> radOn;
         after(1) -> idleRad;
       }
@@ -81,7 +98,8 @@
         do{toggleOven();}
         pause -> micPaused;
         stop/{secondsLeft=0;} ->micOff;
-        timerEnded-> micOff;
+        timerEnded/{nextOperation();}-> micOff;
+        turnOffMicrowave -> micOff;
       }
       micPaused{
         entry/{display("Microwave is paused");}
@@ -90,7 +108,7 @@
         turnOffMicrowave -> micOff;
       }
       micOff{
-        entry/{display("Microwave has been turned off"); closeExhaust(); beep(3); ovenOn = false;}
+        entry/{display("Microwave has been turned off"); closeExhaust(); beep(3); ovenOn = false; clearQueue(); secondsLeft=0;}
         after(1) -> idleMic;
       }
     }
@@ -107,7 +125,8 @@
         do{toggleOven();}
         pause -> frostPaused;
         stop/{secondsLeft=0;} ->frostOff;
-        timerEnded-> frostOff;
+        timerEnded/{nextOperation();}-> frostOff;
+        turnOffDefroster -> frostOff;
       }
       frostPaused{
         entry/{display("Defroster is paused");}
@@ -116,7 +135,7 @@
         turnOffDefroster -> frostOff;
       }
       frostOff{
-        entry/{display("Defroster has been turned off");beep(3); ovenOn = false;}
+        entry/{display("Defroster has been turned off");beep(3); ovenOn = false; clearQueue(); secondsLeft=0;}
         after(1) -> idleFrost;
       }
     }
@@ -197,7 +216,9 @@
       }
     }
 
-    void checkForTemp(){
+    //--INSTANCE METHODS
+
+    void checkForTemp(){ //Monitors temperature to stop opreations if temperature exceeds target/critical temperature
       while(true){
         //System.out.println("Here");
         if (temperature >= maxTemp || temperature>=targetTemperature){
@@ -208,7 +229,7 @@
       }
     }
 
-    void changeTemp(int heat){ //For testing purposes not a function that would be controlled
+    void changeTemp(int heat){ //For testing purposes not a function that would be controlled by user
       temperature=heat;
       if (temperature >= maxTemp || temperature>=targetTemperature){
           display("Max temperature exceeded, stopping all cooking");
@@ -226,7 +247,7 @@
         }
     }
 
-    void beep(int repition){
+    void beep(int repition){ //Method to simulate beeping sounds
       if(!beeping){
         beeping = false;
         for (int i = 0; i<repition; i++){
@@ -250,6 +271,81 @@
       microwavePower = power;
     }
 
+    void toggleradiatingPower(){ //Switches between high and low power for radiator
+      radiatingPower = !radiatingPower;
+      if (radiatingPower){
+        display("Power has been set to high");
+      }
+      else{
+        display("Power has been set to low");
+      }
+    }
+
+    void clearQueue(){
+      for(int i = 0; i<operations.length; i++){
+        operations[i] = null;
+      }
+      numOperations=0;
+      display("Queue/Operation has been completed or stopped");
+    }
+
+    void shift(){//Deletes first element and shifts all elements in the operations array to the left by one thereby progressing through the queue
+      operations[0] = null;
+      for (int i = 1; i<operations.length;i++){
+        operations[i-1] = operations[i];
+      }
+      numOperations--;
+    }
+
+    void nextOperation(){ //Reads the first element of the queue and executes the operation
+      if (numOperations>0){
+        Object[] operation = operations[0];
+        //System.out.println("Current operation" + operation[0]);
+        String command = operation[0].toString();
+        int time=0;
+        if (operation[1]!= null && operation[1] instanceof Integer){
+          time = (Integer) operation[1];
+        }
+        switch(command){
+          case "microwave":
+            setTime(time);
+            turnOnMicrowave();
+            break;
+          case "radiator":
+            setTime(time);
+            turnOnRadiator();
+            break;
+          case "defrost":
+            setTime(time);
+            turnOnDefroster();
+            break;
+        }
+        shift();
+      }
+      else{
+        clearQueue();
+        beep(5);
+      }
+    }
+
+    void queue(String order, int time){ //Adds new operations to the queue when called
+      if (numOperations<20){
+        Object[] operation = new Object[]{order,time};
+        operations[numOperations] = operation;
+        numOperations++;
+      }
+      else{
+        display("Exceeding max operations");
+      }
+
+      for(int i = 0; i<numOperations;i++){
+        System.out.println(operations[i][0]);
+        System.out.println(operations[i][1]);
+      }
+    }
+
+    //--Display functions
+
     void displayTime() {
       SimpleDateFormat formatter = new SimpleDateFormat("HH:mm:ss ");  
       Date date = new Date();  
@@ -264,70 +360,77 @@
       System.out.println(formatter.format(date)+ s);
     }
 
-  
-    void toggleradiatingPower(){ //Switches between high and low power for radiator
-      radiatingPower = !radiatingPower;
-      if (radiatingPower){
-        display("Power has been set to high");
-      }
-      else{
-        display("Power has been set to low");
-      }
+    void displayCommands(){
+      String s = "Available commands:\nmicrowaveOn\nmicrowaveOff\nradiatorOn\nradiatorOff\ndefrosterOn\ndefrosterOff\ntime\npowerMicrowave\npowerRadiator\nopendoor\nclosedoor\nresume\nstop\ntimer\ntemperature\ninternaltemp(for testing only)\nboth(microwave and radiator)\nqueue\ncommands";
+      display(s);
     }
 
-    void queue(String order, int time){ //Creates the queue from user inputs
-      if (numOperations<20){
-        Object[] operation = new Object[]{order,time};
-        operations[numOperations] = operation;
-        numOperations++;
-      }
-      else{
-        display("Exceeding max operations");
-      }
-
-      //for(int i = 0; i<numOperations;i++){
-        //System.out.println(operations[i][0]);
-        //System.out.println(operations[i][1]);
-      //}
-
+    void displaySecondaryCommands(){
+      String s = "Queue commands:\nmicrowave\nradiator\ndefrost\ndone\ncancel\ncommands";
+      display(s);
     }
+
+    //-- MAIN FUNCTION
 
     public static void main(String[] args){
+
+
+        System.out.println("Oven.ump  Copyright (C) 2020  Youcef Ben Ali\n
+        This program comes with ABSOLUTELY NO WARRANTY;.\n
+        This is free software, and you are welcome to redistribute it\n
+        under certain conditions;");
+
+
         Oven test = new Oven();
         Scanner s = new Scanner(System.in);
         int length;
         String command;
+        test.displayCommands();
         while(true) {
         command = s.nextLine();
         switch(command) {
           case "q": System.exit(0);
           case "queue":
             test.display("Note: Max number of operations is 20");
-            list: while(true){
-              command = s.nextLine();
-              switch(command){
-                case "microwave":
-                  test.display("Enter time");
+            if (test.ovenOn == false){
+                test.displaySecondaryCommands();
+                list: while(true){
                   command = s.nextLine();
-                  length = Integer.parseInt(command);
-                  test.queue("microwave", length);
-                  break;
-                case "radiator":
-                  test.display("Enter time");
-                  command = s.nextLine();
-                  length = Integer.parseInt(command);
-                  test.queue("radiator", length);
-                  break;
-                case "defrost":
-                  test.display("Enter time");
-                  command = s.nextLine();
-                  length = Integer.parseInt(command);
-                  test.queue("defrost", length);
-                  break;
-                case "done":
-                  break list;
+                  switch(command){
+                    case "microwave":
+                      test.display("Enter time");
+                      command = s.nextLine();
+                      length = Integer.parseInt(command);
+                      test.queue("microwave", length);
+                      break;
+                    case "radiator":
+                      test.display("Enter time");
+                      command = s.nextLine();
+                      length = Integer.parseInt(command);
+                      test.queue("radiator", length);
+                      break;
+                    case "defrost":
+                      test.display("Enter time");
+                      command = s.nextLine();
+                      length = Integer.parseInt(command);
+                      test.queue("defrost", length);
+                      break;
+                    case "done":
+                      test.nextOperation();
+                      break list;
+                    case "cancel":
+                      test.clearQueue();
+                      break;
+                    case "commands":
+                      test.displaySecondaryCommands();
+                      break;
+                    }
+                }
               }
+            else{
+              test.display("Oven in use, please stop oven operations before creating a queue");
             }
+            
             break;
           case "microwaveOn":
             test.turnOnMicrowave();
@@ -368,6 +471,9 @@
           case "closedoor":
             test.closeDoor();
             break;
+          case "pause":
+            test.pause();
+            break;
           case "resume":
             test.resume();
             break;
@@ -380,7 +486,7 @@
             length = Integer.parseInt(command);
             test.timeOn(length);
             break;
-          case "temp":
+          case "temperature":
             test.display("Enter temperature:");
             command = s.nextLine();
             length = Integer.parseInt(command);
@@ -396,6 +502,11 @@
             test.turnOnRadiator();
             test.turnOnMicrowave();
             break;
+          case "commands":
+            test.displayCommands();
+            break;
+          default:
+            test.display("Not a valid command/button");
         }
       }
     }
