@@ -55,9 +55,10 @@
     queued radiatingHeatElement {
       idleRad{
         turnOffRadiator->radOff;
-        turnOnRadiator[secondsLeft>0 && ovenOn == false]->radOn;
+        turnOnRadiator[secondsLeft>0 && ovenOn == false && closedDoor]->radOn;
         turnOnRadiator[secondsLeft==0]/{display("Time is set to zero, ensure time is above 0");}->idleRad;
         turnOnRadiator[ovenOn==true]/{display("The oven is currently being used, please cancel other cooking operations");}->idleRad;
+        turnOnRadiator[!closedDoor]/{display("Oven door is open, ensure it is closed");} -> idleRad;
       }
       radOn{
         turnOffRadiator -> radOff;
@@ -76,11 +77,12 @@
         entry/{display("Radiator is paused");turnOffFan();}
         resume[closedDoor] -> radOn;
         resume[!closedDoor]/{display("Ensure the door is closed before resuming");}->radPaused;
-        turnOffRadiator -> radOff;
+        turnOffRadiator/{secondsLeft=0;} -> radOff;
+        stop/{secondsLeft=0;} ->radOff;
       }
       radOff{
         entry/{display("Radiator has been turned off");}
-        entry/{turnOffFan(); beep(3); ovenOn=false; clearQueue(); secondsLeft=0;}
+        entry/{turnOffFan(); beep(3); ovenOn=false;}
         turnOnRadiator -> radOn;
         after(1) -> idleRad;
       }
@@ -88,10 +90,10 @@
 
     queued microwave{
       idleMic{
-        turnOnMicrowave[secondsLeft>0 && ovenOn == false] -> micOn;
+        turnOnMicrowave[secondsLeft>0 && ovenOn == false && closedDoor] -> micOn;
         turnOnMicrowave[secondsLeft==0]/{display("Time is set to zero, ensure time is above 0");} -> idleMic;
         turnOnMicrowave[ovenOn==true]/{display("The oven is currently being used, please cancel other cooking operations");} -> idleMic;
-        turnOffMicrowave -> micOff;
+        turnOnMicrowave[!closedDoor]/{display("Oven door is open, ensure it is closed");} -> idleMic;
       }
       micOn{
         entry/{display("Microwave is on at " + microwavePower); startTimer(secondsLeft); openExhaust();}
@@ -99,26 +101,27 @@
         pause -> micPaused;
         stop/{secondsLeft=0;} ->micOff;
         timerEnded/{nextOperation();}-> micOff;
-        turnOffMicrowave -> micOff;
+        turnOffMicrowave/{secondsLeft=0;} -> micOff;
       }
       micPaused{
         entry/{display("Microwave is paused");}
         resume[closedDoor] -> micOn;
         resume[!closedDoor]/{display("Ensure the door is closed before resuming");}->micPaused;
-        turnOffMicrowave -> micOff;
+        stop/{secondsLeft=0;} ->micOff;
+        turnOffMicrowave/{secondsLeft=0;} -> micOff;
       }
       micOff{
-        entry/{display("Microwave has been turned off"); closeExhaust(); beep(3); ovenOn = false; clearQueue(); secondsLeft=0;}
+        entry/{display("Microwave has been turned off"); closeExhaust(); beep(3); ovenOn = false;}
         after(1) -> idleMic;
       }
     }
 
     queued defroster{
       idleFrost{
-        turnOnDefroster[secondsLeft>0 && ovenOn == false] -> frostOn;
+        turnOnDefroster[secondsLeft>0 && ovenOn == false  && closedDoor] -> frostOn;
         turnOnDefroster[secondsLeft==0]/{display("Time is set to zero, ensure time is above 0");} -> idleFrost;
         turnOnDefroster[ovenOn==true]/{display("The oven is currently being used, please cancel other cooking operations");} -> idleFrost;
-        turnOffDefroster -> frostOff;
+        turnOnDefroster[!closedDoor]/{display("Oven door is open, ensure it is closed");} -> idleFrost;
       }
       frostOn{
         entry/{display("Defroster is now on"); startTimer(secondsLeft);}
@@ -126,16 +129,17 @@
         pause -> frostPaused;
         stop/{secondsLeft=0;} ->frostOff;
         timerEnded/{nextOperation();}-> frostOff;
-        turnOffDefroster -> frostOff;
+        turnOffDefroster/{secondsLeft=0;} -> frostOff;
       }
       frostPaused{
         entry/{display("Defroster is paused");}
         resume[closedDoor] -> frostOn;
         resume[!closedDoor]/{display("Ensure the door is closed before resuming");}->frostPaused;
-        turnOffDefroster -> frostOff;
+        turnOffDefroster/{secondsLeft=0;} -> frostOff;
+        stop/{secondsLeft=0;} ->frostOff;
       }
       frostOff{
-        entry/{display("Defroster has been turned off");beep(3); ovenOn = false; clearQueue(); secondsLeft=0;}
+        entry/{display("Defroster has been turned off");beep(3); ovenOn = false;}
         after(1) -> idleFrost;
       }
     }
@@ -265,10 +269,12 @@
 
     void setTime(int seconds){
       secondsLeft = seconds;
+      display("Time has been set to "+ seconds);
     }
 
     void setMicroWavePower(int power){
       microwavePower = power;
+      display("Power has been set to "+ power);
     }
 
     void toggleradiatingPower(){ //Switches between high and low power for radiator
@@ -290,11 +296,17 @@
     }
 
     void shift(){//Deletes first element and shifts all elements in the operations array to the left by one thereby progressing through the queue
-      operations[0] = null;
-      for (int i = 1; i<operations.length;i++){
-        operations[i-1] = operations[i];
+      if (numOperations>0){
+        operations[0] = null;
+        for (int i = 1; i<operations.length;i++){
+          operations[i-1] = operations[i];
+        }
+        numOperations--;
       }
-      numOperations--;
+
+      if (numOperations==0){
+
+      }
     }
 
     void nextOperation(){ //Reads the first element of the queue and executes the operation
@@ -305,6 +317,12 @@
         int time=0;
         if (operation[1]!= null && operation[1] instanceof Integer){
           time = (Integer) operation[1];
+        }
+        try{
+            Thread.sleep(500);
+          }
+          catch(InterruptedException ex){
+            Thread.currentThread().interrupt();
         }
         switch(command){
           case "microwave":
@@ -336,11 +354,6 @@
       }
       else{
         display("Exceeding max operations");
-      }
-
-      for(int i = 0; i<numOperations;i++){
-        System.out.println(operations[i][0]);
-        System.out.println(operations[i][1]);
       }
     }
 
@@ -375,10 +388,7 @@
     public static void main(String[] args){
 
 
-        System.out.println("Oven.ump  Copyright (C) 2020  Youcef Ben Ali\n
-        This program comes with ABSOLUTELY NO WARRANTY;.\n
-        This is free software, and you are welcome to redistribute it\n
-        under certain conditions;");
+        System.out.println("Oven.ump  Copyright (C) 2020  Youcef Ben Ali\nThis program comes with ABSOLUTELY NO WARRANTY.\nThis is free software, and you are welcome to redistribute it\nunder certain conditions");
 
 
         Oven test = new Oven();
@@ -397,6 +407,7 @@
                 list: while(true){
                   command = s.nextLine();
                   switch(command){
+                    case "q": System.exit(0);
                     case "microwave":
                       test.display("Enter time");
                       command = s.nextLine();
@@ -420,7 +431,7 @@
                       break list;
                     case "cancel":
                       test.clearQueue();
-                      break;
+                      break list;
                     case "commands":
                       test.displaySecondaryCommands();
                       break;
